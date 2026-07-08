@@ -18,6 +18,7 @@ scripts/
   seen-store.js         配信済みURLの記録・除外（loadSeen/addSeen、data/seen-{edition}.json）
   last-sent-store.js    当日JST基準の送信済みフラグ（wasSentToday/markSentToday、data/last-sent.json）
   build-digest.js       候補記事→Gemini APIで選定・要約→テキスト整形（buildDigest）
+  fetch-thumbnails.js   選定記事のog:imageを取得してサムネイルURLを付与
   format-flex.js        ダイジェストをLINE Flex Message（カード形式カルーセル）に組み立て
   line.js               LINE Messaging API Broadcast送信（broadcastMessages/broadcastLine）
   notify-failure.js     ワークフロー失敗時のLINE通知（if: failure()から呼ばれる）
@@ -52,6 +53,7 @@ archive/
 - **専門用語は完全な平易化をしない**。初出時にカッコ書きで軽い注釈をつける方針（朝刊・夕刊とも）。今後の業務でこうした用語に触れる機会が増えるため、用語自体には慣れてほしいという意図
 - **プロンプトに「複数の情報源から選ぶ」よう明記**。特定ソースへの偏り（夕刊が毎回RIETIばかりになる等）を防ぐため
 - **要約はRSSのdescription（概要、最大300字に切り詰め）に基づかせる**。以前はタイトルとURLしかLLMに渡しておらず、要約がタイトルからの推測（創作）になっていた。`simple-rss.js`がdescription/summary/content:encodedを抽出し、プロンプトで「概要にない事実・数値を補わない」よう明示している
+- **カードのサムネイルは記事ページのog:imageから取得**（`fetch-thumbnails.js`）。RSSに画像がないため、選定された2〜3記事だけ本文ページを取得してmetaタグから抜く。og:imageがないサイト（RIETI等）や取得失敗時は画像なしカードに自然に劣化する。サムネイルは飾りなので失敗しても配信は止めない
 - **配信はFlex Message（記事ごとのカード形式カルーセル）、アーカイブはテキスト版**。LINEの課金は「1リクエスト（メッセージオブジェクト最大5個）＝1通」なので、見出しテキスト＋Flex＋警告は必ず1回のbroadcastにまとめる（無料枠は月200通、現状の使用は月70通程度）。メッセージ構造の検証は実送信せずに`/v2/bot/message/validate/broadcast`でできる
 - **失敗時はLINEに通知**（`notify-failure.js`）。「通知が来ない＝新着なし」と「通知が来ない＝壊れている」を区別するため。各ワークフローの最後に`if: failure()`ステップがあり、Actionsのrun URLを添えて知らせる
 - **配信したダイジェストは`archive/`にテキスト版で自動保存**（記事があった日のみ）。後から何を読んだか振り返るための資産。ワークフローのコミットステップが`archive`もaddする

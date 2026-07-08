@@ -2,7 +2,7 @@
 // アーカイブやCLI確認にはbuild-digest.jsのテキスト版を使い、LINE上の見た目だけここで作る
 
 function articleBubble(item) {
-  return {
+  const bubble = {
     type: "bubble",
     size: "kilo",
     body: {
@@ -28,6 +28,20 @@ function articleBubble(item) {
       ],
     },
   };
+
+  // サムネイルが取れた記事はカード上部にヒーロー画像を載せる（タップで記事へ）
+  if (item.imageUrl) {
+    bubble.hero = {
+      type: "image",
+      url: item.imageUrl,
+      size: "full",
+      aspectRatio: "20:13",
+      aspectMode: "cover",
+      action: { type: "uri", uri: item.url },
+    };
+  }
+
+  return bubble;
 }
 
 // 戻り値はbroadcastMessagesにそのまま渡せるメッセージ配列（最大5個の制約に注意）

@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { buildDigest } from "./build-digest.js";
+import { attachThumbnails } from "./fetch-thumbnails.js";
 import { buildDigestMessages } from "./format-flex.js";
 import { broadcastMessages } from "./line.js";
 import { addSeen } from "./seen-store.js";
@@ -37,6 +38,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
   // 先にダイジェストを作っておき、送信だけを目標時刻ちょうどに行う
   const { text, selected, selectedUrls, failures, label } = await buildDigest(edition);
+  await attachThumbnails(selected);
   const messages = buildDigestMessages({ label, selected, failures });
   await waitUntilJst(process.env.TARGET_TIME_JST);
   await broadcastMessages(messages);
