@@ -2,7 +2,7 @@ name: Site Watch
 
 on:
   schedule:
-    - cron: "13 22 * * 1" # 毎週月曜 07:13 JST
+    - cron: "13 22 * * *" # 毎日 07:13 JST
   workflow_dispatch: {}
 
 permissions:
@@ -30,6 +30,6 @@ jobs:
           git add data/site-seen.json
           if ! git diff --cached --quiet; then
             git commit -m "chore: update site watch seen list"
-            # 月曜朝は朝刊ワークフローのpushと競合しうるため一度だけリトライ
+            # 朝刊ワークフローのpushと競合しうるため一度だけリトライ
             git push || (git pull --rebase && git push)
           fi

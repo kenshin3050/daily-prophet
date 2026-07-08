@@ -1,6 +1,6 @@
 # 日刊預言者新聞（daily-prophet）
 
-技術（朝刊）・社会課題（夕刊）のRSSダイジェストをLLMで要約し、LINEに1日2回自動配信するアプリ。加えて特定サイト（RSSのないウォッチ対象。URLはSecretsで指定しリポジトリには書かない）の新着記事を週次で別枠通知する。
+技術（朝刊）・社会課題（夕刊）のRSSダイジェストをLLMで要約し、LINEに1日2回自動配信するアプリ。加えて特定サイト（RSSのないウォッチ対象。URLはSecretsで指定しリポジトリには書かない）の新着記事を毎日チェックして別枠通知する。
 
 ## 背景・目的
 
@@ -25,7 +25,7 @@ scripts/
 .github/workflows/
   morning-digest.yml     朝刊を07:00 JSTに配信（05:58起動＋定刻まで待機、保険07:15/07:45）
   evening-digest.yml     夕刊を17:00 JSTに配信（15:58起動＋定刻まで待機、保険17:15/17:45）
-  site-watch.yml         毎週月曜07:13 JSTにウォッチ対象サイトの新着をチェック
+  site-watch.yml         毎日07:13 JSTにウォッチ対象サイトの新着をチェック
 data/
   seen-{morning,evening}.json  配信済み記事URL（直近300件）
   last-sent.json               各editionの最終送信日（JST）
@@ -62,7 +62,7 @@ data/
 
 ## 現状
 
-朝刊・夕刊・サイトウォッチ週次通知すべて実装・自動化・実配信確認まで完了。リポジトリ: `https://github.com/kenshin3050/daily-prophet`（public運用）。
+朝刊・夕刊・サイトウォッチ通知（毎日）すべて実装・自動化・実配信確認まで完了。リポジトリ: `https://github.com/kenshin3050/daily-prophet`（public運用）。
 
 **このリポジトリはpublic**。2026-07-08にファイル・コミット履歴の両方から個人情報（本名メールアドレス等）を除去して履歴を作り直した。今後もコミットには本名メールを使わず、リポジトリローカルに設定済みのnoreplyアドレス（`101310167+kenshin3050@users.noreply.github.com`）を使うこと。個人的な背景・経緯はここには書かず、Claude Codeのメモリ側に記録する。
 
