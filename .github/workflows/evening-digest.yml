@@ -1,0 +1,47 @@
+name: Evening Digest
+
+on:
+  schedule:
+    # 目標配信時刻は 17:00 JST (08:00 UTC)。GitHub Actionsのscheduleは混雑時に
+    # 遅延するため約1時間前に起動し、send-digest.js側で目標時刻まで待ってから送信する。
+    # sleep中もActions実行時間を消費するが、publicリポジトリは無制限なので問題ない。
+    # 毎時0分はGitHub上で最も混雑して遅延しやすいため、あえて58分にずらしている
+    - cron: "58 6 * * *" # 15:58 JST（本命）
+    # 本命が大幅に遅延・失敗した場合の保険。送信済みなら数秒で終了する
+    - cron: "15 8 * * *" # 17:15 JST
+    - cron: "45 8 * * *" # 17:45 JST
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# 本命と保険が同時に走って二重送信しないよう直列化する
+concurrency:
+  group: evening-digest
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node scripts/send-digest.js evening
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # 手動実行（workflow_dispatch）のときは待たずに即送信する
+          TARGET_TIME_JST: ${{ github.event_name == 'schedule' && '17:00' || '' }}
+      - name: Commit updated seen list
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/seen-evening.json data/last-sent.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update evening seen list"
+            # 他ワークフローのpushと競合した場合に備えて一度だけリトライ
+            git push || (git pull --rebase && git push)
+          fi

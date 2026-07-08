@@ -1,0 +1,13 @@
+{
+  "name": "daily-prophet",
+  "description": "日刊預言者新聞",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test-broadcast": "node --env-file=.env scripts/test-broadcast.js",
+    "build-digest": "node --env-file=.env scripts/build-digest.js",
+    "send-digest": "node --env-file=.env scripts/send-digest.js",
+    "check-site": "node --env-file=.env scripts/check-site.js"
+  }
+}

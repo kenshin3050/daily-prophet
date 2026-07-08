@@ -1,0 +1,35 @@
+name: Site Watch
+
+on:
+  schedule:
+    - cron: "13 22 * * 1" # 毎週月曜 07:13 JST
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node scripts/check-site.js
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          # 監視対象サイトはリポジトリに書かず、Secretsで指定する
+          WATCH_URL: ${{ secrets.WATCH_URL }}
+          WATCH_LABEL: ${{ secrets.WATCH_LABEL }}
+      - name: Commit updated seen list
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/site-seen.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update site watch seen list"
+            # 月曜朝は朝刊ワークフローのpushと競合しうるため一度だけリトライ
+            git push || (git pull --rebase && git push)
+          fi
