@@ -49,7 +49,7 @@ export async function checkSite() {
   return { isFirstRun, notified: isFirstRun ? [] : newItems, total: items.length };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const result = await checkSite();
   if (result.isFirstRun) {
     console.log(`初回実行: ${result.total}件を既知として記録（通知なし）`);

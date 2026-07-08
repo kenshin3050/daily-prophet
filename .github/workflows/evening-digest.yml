@@ -39,9 +39,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/seen-evening.json data/last-sent.json
+          git add data/seen-evening.json data/last-sent.json archive
           if ! git diff --cached --quiet; then
             git commit -m "chore: update evening seen list"
             # 他ワークフローのpushと競合した場合に備えて一度だけリトライ
             git push || (git pull --rebase && git push)
           fi
+      - name: Notify failure
+        if: failure()
+        run: node scripts/notify-failure.js 夕刊
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

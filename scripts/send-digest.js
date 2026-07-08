@@ -1,8 +1,10 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { buildDigest } from "./build-digest.js";
-import { broadcastLine } from "./line.js";
+import { buildDigestMessages } from "./format-flex.js";
+import { broadcastMessages } from "./line.js";
 import { addSeen } from "./seen-store.js";
-import { wasSentToday, markSentToday } from "./last-sent-store.js";
+import { wasSentToday, markSentToday, todayJst } from "./last-sent-store.js";
 
 const edition = process.argv[2] ?? "morning";
 if (!["morning", "evening"].includes(edition)) {
@@ -27,18 +29,26 @@ async function waitUntilJst(hhmm) {
   await new Promise((resolve) => setTimeout(resolve, waitMs));
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (wasSentToday(edition)) {
     console.log(`${edition}は本日分を送信済みのためスキップします`);
     process.exit(0);
   }
 
   // 先にダイジェストを作っておき、送信だけを目標時刻ちょうどに行う
-  const { text, selectedUrls } = await buildDigest(edition);
+  const { text, selected, selectedUrls, failures, label } = await buildDigest(edition);
+  const messages = buildDigestMessages({ label, selected, failures });
   await waitUntilJst(process.env.TARGET_TIME_JST);
-  await broadcastLine(text);
+  await broadcastMessages(messages);
   if (selectedUrls.length > 0) addSeen(edition, selectedUrls);
   markSentToday(edition);
+
+  // 後から振り返れるよう、配信したダイジェストのテキスト版を残す（記事があった日のみ）
+  if (selected.length > 0) {
+    mkdirSync(new URL("../archive/", import.meta.url), { recursive: true });
+    writeFileSync(new URL(`../archive/${todayJst()}-${edition}.md`, import.meta.url), text + "\n");
+  }
+
   console.log("配信完了:");
   console.log(text);
 }

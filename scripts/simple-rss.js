@@ -37,6 +37,20 @@ function extractDate(block) {
   );
 }
 
+// 記事の概要文。RSS: <description>、Atom: <summary>/<content>、RSS拡張: <content:encoded>。
+// LLMの要約をタイトルだけの推測でなく実際の記事内容に基づかせるために使う。
+// HTML断片が入っていることが多いのでタグを落とし、プロンプトが膨らまないよう300字で切る
+function extractDescription(block) {
+  const raw =
+    extractTag(block, "description") ??
+    extractTag(block, "summary") ??
+    extractTag(block, "content:encoded") ??
+    extractTag(block, "content");
+  if (!raw) return null;
+  const text = raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, 300) : null;
+}
+
 export function parseFeed(xml) {
   const blocks = xml.match(/<item\b[\s\S]*?<\/item>|<entry\b[\s\S]*?<\/entry>/gi) ?? [];
   return blocks.map((block) => {
@@ -44,7 +58,7 @@ export function parseFeed(xml) {
     const link = extractLink(block);
     const dateStr = extractDate(block);
     const isoDate = dateStr ? new Date(dateStr).toISOString() : null;
-    return { title, link, isoDate };
+    return { title, link, isoDate, description: extractDescription(block) };
   });
 }
 

@@ -21,10 +21,17 @@ const EDITION_INSTRUCTIONS = {
 
 function buildPrompt(edition, items) {
   const list = items
-    .map((item, i) => `${i + 1}. [${item.source}] ${item.title}\n   URL: ${item.link}`)
+    .map((item, i) => {
+      const desc = item.description ? `\n   概要: ${item.description}` : "";
+      return `${i + 1}. [${item.source}] ${item.title}\n   URL: ${item.link}${desc}`;
+    })
     .join("\n");
 
   return `${EDITION_INSTRUCTIONS[edition]}
+
+要約は、各記事の「概要」とタイトルに実際に書かれている内容だけに基づいて作成してください。
+概要に書かれていない具体的な事実・数値・固有名詞を推測で補ってはいけません。
+概要がない記事は、タイトルだけで内容が明確な場合に限り選んでください。
 
 # 候補記事一覧
 ${list}
@@ -91,7 +98,13 @@ async function callGemini(prompt) {
 }
 
 // edition: "morning" | "evening"
-// 戻り値: { text: LINEに送る本文, selectedUrls: 実際に選ばれた記事のURL一覧（送信成功後にseen-storeへ記録する用） }
+// 戻り値: {
+//   text: ダイジェストのテキスト版（アーカイブ・CLI確認用）,
+//   selected: 選ばれた記事の構造化データ（Flex Message組み立て用）,
+//   selectedUrls: 実際に選ばれた記事のURL一覧（送信成功後にseen-storeへ記録する用）,
+//   failures: 取得に失敗したソース名,
+//   label: 版の表示名
+// }
 export async function buildDigest(edition, sinceHours = 48) {
   const { items, failures } = await fetchItems(edition, sinceHours);
   const seen = loadSeen(edition);
@@ -99,6 +112,7 @@ export async function buildDigest(edition, sinceHours = 48) {
 
   let text;
   let selectedUrls = [];
+  let valid = [];
 
   if (candidates.length === 0) {
     text = `${EDITION_LABEL[edition]}\n\n新着記事がありませんでした。`;
@@ -108,7 +122,7 @@ export async function buildDigest(edition, sinceHours = 48) {
     // LLMが候補一覧にないURLを創作することがあるため、実在する候補だけ残す
     // （壊れたリンクの配信と、架空URLのseen-store記録を防ぐ）
     const candidateUrls = new Set(candidates.map((item) => item.link));
-    const valid = selected.filter((item) => candidateUrls.has(item.url));
+    valid = selected.filter((item) => candidateUrls.has(item.url));
     if (valid.length === 0) {
       throw new Error(`Geminiの選定結果に有効な候補URLがありません: ${JSON.stringify(selected).slice(0, 300)}`);
     }
@@ -120,10 +134,10 @@ export async function buildDigest(edition, sinceHours = 48) {
     text += `\n\n⚠️ 取得失敗: ${failures.join(", ")}`;
   }
 
-  return { text, selectedUrls };
+  return { text, selected: valid, selectedUrls, failures, label: EDITION_LABEL[edition] };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const edition = process.argv[2] ?? "morning";
   const { text } = await buildDigest(edition);
   console.log(text);

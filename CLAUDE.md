@@ -17,8 +17,10 @@ scripts/
   fetch-sources.js      RSS取得 + 時間窓フィルタ（fetchItems）
   seen-store.js         配信済みURLの記録・除外（loadSeen/addSeen、data/seen-{edition}.json）
   last-sent-store.js    当日JST基準の送信済みフラグ（wasSentToday/markSentToday、data/last-sent.json）
-  build-digest.js       候補記事→Gemini APIで選定・要約→LINE用テキスト整形（buildDigest）
-  line.js               LINE Messaging API Broadcast送信（broadcastLine）
+  build-digest.js       候補記事→Gemini APIで選定・要約→テキスト整形（buildDigest）
+  format-flex.js        ダイジェストをLINE Flex Message（カード形式カルーセル）に組み立て
+  line.js               LINE Messaging API Broadcast送信（broadcastMessages/broadcastLine）
+  notify-failure.js     ワークフロー失敗時のLINE通知（if: failure()から呼ばれる）
   send-digest.js        上記を繋ぐCLIエントリ。実際の送信とseen/last-sent更新はここでのみ行う
   fetch-site.js         ウォッチ対象サイト新着ページの専用パーサー（対象はWATCH_URL環境変数）
   check-site.js         サイト新着の差分検知・通知（data/site-seen.json）
@@ -30,6 +32,8 @@ data/
   seen-{morning,evening}.json  配信済み記事URL（直近300件）
   last-sent.json               各editionの最終送信日（JST）
   site-seen.json                サイトウォッチャーの既知URL一覧（SHA-256ハッシュ）
+archive/
+  YYYY-MM-DD-{edition}.md      配信済みダイジェストのテキスト版（振り返り用アーカイブ）
 ```
 
 すべてNode.js標準機能のみで完結（外部npm依存なし）。`.env`はローカル実行用、GitHub Actionsでは repository の Secrets（`LINE_CHANNEL_ACCESS_TOKEN`, `GEMINI_API_KEY`, `WATCH_URL`, `WATCH_LABEL`）を使う。
@@ -47,6 +51,10 @@ data/
 - **前倒し幅は約1時間（62分）**: sleep中もActionsの実行時間としてカウントされるため、private時代は無料枠（月2,000分）の制約で25分前倒しが上限だった。public化（Actions無制限）に伴い62分へ拡大。**このリポジトリをprivateに戻す場合は前倒し幅を25分以下に戻さないと無料枠を使い切って配信が全停止する**ので注意。なお62分でも実測66分の遅延はカバーしきれないが、その場合も保険cronが配信自体を担保する
 - **専門用語は完全な平易化をしない**。初出時にカッコ書きで軽い注釈をつける方針（朝刊・夕刊とも）。今後の業務でこうした用語に触れる機会が増えるため、用語自体には慣れてほしいという意図
 - **プロンプトに「複数の情報源から選ぶ」よう明記**。特定ソースへの偏り（夕刊が毎回RIETIばかりになる等）を防ぐため
+- **要約はRSSのdescription（概要、最大300字に切り詰め）に基づかせる**。以前はタイトルとURLしかLLMに渡しておらず、要約がタイトルからの推測（創作）になっていた。`simple-rss.js`がdescription/summary/content:encodedを抽出し、プロンプトで「概要にない事実・数値を補わない」よう明示している
+- **配信はFlex Message（記事ごとのカード形式カルーセル）、アーカイブはテキスト版**。LINEの課金は「1リクエスト（メッセージオブジェクト最大5個）＝1通」なので、見出しテキスト＋Flex＋警告は必ず1回のbroadcastにまとめる（無料枠は月200通、現状の使用は月70通程度）。メッセージ構造の検証は実送信せずに`/v2/bot/message/validate/broadcast`でできる
+- **失敗時はLINEに通知**（`notify-failure.js`）。「通知が来ない＝新着なし」と「通知が来ない＝壊れている」を区別するため。各ワークフローの最後に`if: failure()`ステップがあり、Actionsのrun URLを添えて知らせる
+- **配信したダイジェストは`archive/`にテキスト版で自動保存**（記事があった日のみ）。後から何を読んだか振り返るための資産。ワークフローのコミットステップが`archive`もaddする
 - **LLMの選定結果は候補URL集合と突き合わせて検証**（`build-digest.js`）。LLMが候補にないURLを創作した場合に、壊れたリンクの配信や架空URLのseen記録を防ぐ。有効な記事が1本もなければエラーにして保険cronの再試行に委ねる
 - **外部通信はすべてタイムアウト・リトライ付き**。フィード取得は20秒タイムアウト＋並行取得、Gemini呼び出しは60秒タイムアウト＋最大3回リトライ（無料枠は429/503が出ることがあるため）。ワークフロー自体にも`timeout-minutes`を設定し、ハングでActions無料枠を浪費しない
 - **git pushは競合時に`pull --rebase`して1回リトライ**。月曜朝など複数ワークフローがほぼ同時にdataをpushする場面があるため

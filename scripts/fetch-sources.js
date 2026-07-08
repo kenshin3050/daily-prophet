@@ -36,6 +36,7 @@ export async function fetchItems(edition, sinceHours = 48) {
         title: entry.title,
         link: entry.link,
         pubDate: entry.isoDate ?? null,
+        description: entry.description ?? null,
       });
     }
   }
@@ -44,7 +45,8 @@ export async function fetchItems(edition, sinceHours = 48) {
 }
 
 // CLIから直接実行した場合は結果を表示するだけ（動作確認用）
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+// （node -e等から importされた場合はprocess.argv[1]がundefinedになるためガードする）
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const edition = process.argv[2] ?? "morning";
   const { items, failures } = await fetchItems(edition, 24 * 14); // 動作確認用に14日分まで緩める
   console.log(`${edition}: ${items.length}件取得`);
