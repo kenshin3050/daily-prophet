@@ -3,11 +3,12 @@ name: Morning Digest
 on:
   schedule:
     # 目標配信時刻は 07:00 JST (22:00 UTC)。GitHub Actionsのscheduleは混雑時に
-    # 遅延するため約1時間前に起動し、send-digest.js側で目標時刻まで待ってから送信する。
+    # 大きく遅延する（実測で最大3.5時間）ため5時間前に起動し、send-digest.js側で
+    # 定刻2分前まで待機→生成→定刻ちょうどに送信する。
     # sleep中もActions実行時間を消費するが、publicリポジトリは無制限なので問題ない。
     # 毎時0分はGitHub上で最も混雑して遅延しやすいため、あえて58分にずらしている
-    - cron: "58 20 * * *" # 05:58 JST（本命）
-    # 本命が大幅に遅延・失敗した場合の保険。送信済みなら数秒で終了する
+    - cron: "58 16 * * *" # 01:58 JST（本命）
+    # 本命が5時間超遅延・失敗した場合の保険。送信済みなら数秒で終了する
     - cron: "15 22 * * *" # 07:15 JST
     - cron: "45 22 * * *" # 07:45 JST
   workflow_dispatch: {}
@@ -23,7 +24,7 @@ concurrency:
 jobs:
   send:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
