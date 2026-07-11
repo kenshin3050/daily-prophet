@@ -50,16 +50,24 @@ function formatDigestText(edition, selected) {
   return `${EDITION_LABEL[edition]}\n\n${body}\n――――――――――`;
 }
 
-// 無料枠のGemini APIは429/503などの一時エラーを返すことがあるため、
-// 少し間隔を空けて最大3回まで試す
+// 無料枠のGemini APIは429/503（過負荷）やタイムアウトが起きることがある。
+// 実際に2026-07-10朝、flashの容量逼迫で60秒タイムアウト×2→503となり配信が失敗した。
+// 対策: flashで2回試し、ダメなら容量プールが別のflash-liteに切り替えてさらに2回試す
+const MODEL_ATTEMPTS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash-lite",
+];
+
 async function callGemini(prompt) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY が設定されていません（.env を確認）");
 
-  const model = "gemini-2.5-flash";
   let lastError;
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= MODEL_ATTEMPTS.length; attempt++) {
+    const model = MODEL_ATTEMPTS[attempt - 1];
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -89,8 +97,10 @@ async function callGemini(prompt) {
       return JSON.parse(parts.map((part) => part.text ?? "").join(""));
     } catch (err) {
       lastError = err;
-      console.error(`Gemini呼び出し失敗（${attempt}回目）: ${err.message}`);
-      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 10_000));
+      console.error(`Gemini呼び出し失敗（${attempt}回目・${model}）: ${err.message}`);
+      if (attempt < MODEL_ATTEMPTS.length) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 15_000));
+      }
     }
   }
 
