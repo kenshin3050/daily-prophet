@@ -2,22 +2,59 @@ import { pathToFileURL } from "node:url";
 import { fetchItems } from "./fetch-sources.js";
 import { loadSeen } from "./seen-store.js";
 
-const EDITION_LABEL = { morning: "朝刊（技術）", evening: "夕刊（社会課題）" };
+// 夕刊は曜日ごとにテーマを決め、1週間で7ジャンルを一巡させる。
+// 毎回同じ切り口（経済ばかり等）にならず、視野が偏らないようにするのが狙い。
+// 配列の添字はJSTの曜日番号（0=日曜）
+const EVENING_GENRES = [
+  "国際情勢・地政学",
+  "経済・金融",
+  "産業・企業",
+  "テクノロジーと社会",
+  "環境・エネルギー",
+  "人口・社会保障・医療",
+  "教育・労働",
+];
 
-const EDITION_INSTRUCTIONS = {
-  morning: `あなたは技術系ニュースダイジェストの編集者です。
-候補記事の中から、読者（技術動向を追いたい若手社会人）にとって面白く価値のあるものを2〜3本選んでください。
+// ランナーはUTCで動くため、JST基準の曜日を自前で出す
+function eveningGenre() {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return EVENING_GENRES[jst.getUTCDay()];
+}
+
+function editionLabel(edition) {
+  return edition === "morning" ? "朝刊（技術）" : `夕刊（${eveningGenre()}）`;
+}
+
+// 読者像: 若手のビジネス職。エンジニアではないが、AI・クラウドの基本用語は理解している。
+// 「基本用語は説明不要／実装の詳細には踏み込まない／仕事にどう効くかを添える」が方針
+function editionInstruction(edition) {
+  if (edition === "morning") {
+    return `あなたは技術系ニュースダイジェストの編集者です。
+読者はAI・クラウドを中心に技術動向を追っている若手のビジネス職です。
+LLM、API、クラウド、機械学習といった基本用語はすでに理解しているので、いちいち説明する必要はありません。
+一方でエンジニアではないため、実装の詳細や特定フレームワークの内部構造には踏み込まないでください。
+
+候補記事の中から、AI・クラウド、および実務で効いてくる技術トピックを優先して2〜3本選んでください。
 なるべく複数の情報源から選び、同じ情報源に偏らないようにしてください。
-各記事について、内容を分かりやすく噛み砕いて要約してください。ただし完全に平易な言葉に置き換えるのではなく、
-専門用語はそのまま使いつつ、初出時にカッコ書きで簡単な補足説明をつけてください（例:「LLM（ChatGPTのような大規模言語モデル）」）。
-読者は今後の業務でこうした用語に触れる機会が増えるため、用語自体には慣れてもらいたいという狙いです。`,
-  evening: `あなたは社会課題系ニュースダイジェストの編集者です。
-候補記事の中から、読者（社会課題や経済・政策の動向を追いたい若手社会人）にとって示唆に富む、社会課題や経済・政策の動向を2〜3本選んでください。
+
+各記事の要約は次の方針で書いてください。
+- 「何が新しいのか／何が変わるのか」を最初に書く
+- 新しい製品名・規格名・専門的な手法名など、一般には馴染みのない固有名詞が出てきたときだけ、初出時にカッコ書きで簡単に補足する
+- 最後に「これが効いてくる場面」を一言添える（どんな業務や場面で意味を持つのか）`;
+  }
+
+  return `あなたは社会課題系ニュースダイジェストの編集者です。
+読者は社会・経済・政策の動向を追っている若手のビジネス職です。
+
+本日のテーマは「${eveningGenre()}」です。
+候補記事の中から、このテーマに関係するものを優先して2〜3本選んでください。
+ただしテーマに合う記事が候補に乏しい場合は、無理に当てはめず、社会課題として重要なものを選んでください。
 なるべく複数の情報源から選び、同じ情報源に偏らないようにしてください。
+
 夕方の疲れた頭でも読めるように、簡潔で分かりやすい要約にしてください。ただし完全に平易な言葉に置き換えるのではなく、
 経済・政策系の専門用語（例:「リスキリング」「カーボンリーケージ」「GX-ETS」など）はそのまま使いつつ、
-初出時にカッコ書きで簡単な補足説明をつけてください。読者は今後の業務でこうした用語に触れる機会が増えるため、用語自体には慣れてもらいたいという狙いです。`,
-};
+初出時にカッコ書きで簡単な補足説明をつけてください。読者は今後の業務でこうした用語に触れる機会が増えるため、用語自体には慣れてもらいたいという狙いです。`;
+}
 
 function buildPrompt(edition, items) {
   const list = items
@@ -27,7 +64,7 @@ function buildPrompt(edition, items) {
     })
     .join("\n");
 
-  return `${EDITION_INSTRUCTIONS[edition]}
+  return `${editionInstruction(edition)}
 
 要約は、各記事の「概要」とタイトルに実際に書かれている内容だけに基づいて作成してください。
 概要に書かれていない具体的な事実・数値・固有名詞を推測で補ってはいけません。
@@ -47,7 +84,7 @@ function formatDigestText(edition, selected) {
   const body = selected
     .map((item) => `――――――――――\n【${item.title}】\n${item.summary}\n出典: ${item.source}\nURL: ${item.url}`)
     .join("\n\n");
-  return `${EDITION_LABEL[edition]}\n\n${body}\n――――――――――`;
+  return `${editionLabel(edition)}\n\n${body}\n――――――――――`;
 }
 
 // 無料枠のGemini APIは429/503（過負荷）やタイムアウトが起きることがある。
@@ -125,7 +162,7 @@ export async function buildDigest(edition, sinceHours = 48) {
   let valid = [];
 
   if (candidates.length === 0) {
-    text = `${EDITION_LABEL[edition]}\n\n新着記事がありませんでした。`;
+    text = `${editionLabel(edition)}\n\n新着記事がありませんでした。`;
   } else {
     const prompt = buildPrompt(edition, candidates);
     const selected = await callGemini(prompt);
@@ -144,7 +181,7 @@ export async function buildDigest(edition, sinceHours = 48) {
     text += `\n\n⚠️ 取得失敗: ${failures.join(", ")}`;
   }
 
-  return { text, selected: valid, selectedUrls, failures, label: EDITION_LABEL[edition] };
+  return { text, selected: valid, selectedUrls, failures, label: editionLabel(edition) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
