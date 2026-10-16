@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { fetchItems } from "./fetch-sources.js";
+import { callGemini } from "./gemini.js";
 import { loadSeen } from "./seen-store.js";
 
 // 夕刊は曜日ごとにテーマを決め、1週間で7ジャンルを一巡させる。
@@ -35,12 +36,7 @@ LLM、API、クラウド、機械学習といった基本用語はすでに理�
 一方でエンジニアではないため、実装の詳細や特定フレームワークの内部構造には踏み込まないでください。
 
 候補記事の中から、AI・クラウド、および実務で効いてくる技術トピックを優先して2〜3本選んでください。
-なるべく複数の情報源から選び、同じ情報源に偏らないようにしてください。
-
-各記事の要約は次の方針で書いてください。
-- 「何が新しいのか／何が変わるのか」を最初に書く
-- 新しい製品名・規格名・専門的な手法名など、一般には馴染みのない固有名詞が出てきたときだけ、初出時にカッコ書きで簡単に補足する
-- 最後に「これが効いてくる場面」を一言添える（どんな業務や場面で意味を持つのか）`;
+なるべく複数の情報源から選び、同じ情報源に偏らないようにしてください。`;
   }
 
   return `あなたは社会課題系ニュースダイジェストの編集者です。
@@ -49,12 +45,32 @@ LLM、API、クラウド、機械学習といった基本用語はすでに理�
 本日のテーマは「${eveningGenre()}」です。
 候補記事の中から、このテーマに関係するものを優先して2〜3本選んでください。
 ただしテーマに合う記事が候補に乏しい場合は、無理に当てはめず、社会課題として重要なものを選んでください。
-なるべく複数の情報源から選び、同じ情報源に偏らないようにしてください。
 
-夕方の疲れた頭でも読めるように、簡潔で分かりやすい要約にしてください。ただし完全に平易な言葉に置き換えるのではなく、
-経済・政策系の専門用語（例:「リスキリング」「カーボンリーケージ」「GX-ETS」など）はそのまま使いつつ、
-初出時にカッコ書きで簡単な補足説明をつけてください。読者は今後の業務でこうした用語に触れる機会が増えるため、用語自体には慣れてもらいたいという狙いです。`;
+個人の体験談・人生相談・家計の愚痴・芸能ゴシップ・健康や美容のライフハックのような記事は選ばないでください。
+制度・政策・データ・産業構造の話など、社会の仕組みを理解する手がかりになる記事を優先してください。
+経済・政策系の専門用語（例:「リスキリング」「GX-ETS」）は残してよいですが、初出時にカッコ書きで短く補足してください。
+なるべく複数の情報源から選び、同じ情報源に偏らないようにしてください。`;
 }
+
+// 読む気力がない朝晩でも流し読みで頭に入るように、文章の作り方を強く縛る。
+// 2026-10-16にユーザーが「タイトルや説明が難しすぎて全く読まなくなった」と申告したため、
+// 原文タイトルの転記をやめ、平易な言い換え見出し＋一言＋2行の構成に変更した
+const WRITING_RULES = `# 書き方のルール（最重要）
+読者は忙しく、難しそうに見えた瞬間に読むのをやめます。パッと見て頭に入ることを最優先してください。
+
+- **headline**: 原文タイトルは絶対にそのまま使わないこと。何のニュースかが一読で分かる平易な日本語に言い換え、20字前後（最大28字）にする。
+  体言止めにし、「」や？や…などの記号、煽り表現、固有名詞の羅列は避ける。英語記事も必ず日本語にする。
+  悪い例:「AIデータセンターの電力問題、答えは「計算処理の引っ越し」か？　日立など5社、横浜と北九州をつないで実証」
+  良い例:「AIの計算を電力が余る場所へ移す実証」
+- **gist**: 「要するに何の話か」を1文、40字前後で。主語と動詞のある普通の文にする。
+- **detail**: 具体的な中身を2文、合計90字前後で。数字・固有名詞・具体的な事実を入れる。
+  gistに書いたことを言い換えて繰り返さず、gistには入っていない具体を足すこと。
+  次のような中身のない締め方は禁止:「〜が浮き彫りになっています」「〜する一助となるでしょう」「重要な示唆を与えます」
+  「〜が求められます」「注目されています」「考察を深めます」。読者を主語にした一般論で埋めないこと。
+- 一文は40字以内。難しい熟語より普通の言葉を使う（例: 「浮き彫りになる」→「はっきりしてきた」）。`;
+
+const MORNING_EFFECT_RULE = `- **effect**: 「これが効いてくる場面」を30字前後で1つだけ。具体的な場面を書くこと。
+  悪い例:「経営層にとって重要な技術動向です」 良い例:「社内のAI導入でコスト試算をするとき」`;
 
 function buildPrompt(edition, items) {
   const list = items
@@ -64,9 +80,14 @@ function buildPrompt(edition, items) {
     })
     .join("\n");
 
+  const effectField = edition === "morning" ? `, "effect": "これが効いてくる場面（30字前後）"` : "";
+
   return `${editionInstruction(edition)}
 
-要約は、各記事の「概要」とタイトルに実際に書かれている内容だけに基づいて作成してください。
+${WRITING_RULES}
+${edition === "morning" ? MORNING_EFFECT_RULE : ""}
+
+内容は、各記事の「概要」とタイトルに実際に書かれていることだけに基づいて書いてください。
 概要に書かれていない具体的な事実・数値・固有名詞を推測で補ってはいけません。
 概要がない記事は、タイトルだけで内容が明確な場合に限り選んでください。
 
@@ -76,72 +97,21 @@ ${list}
 # 出力形式
 以下のスキーマのJSON配列だけを出力してください（説明文やMarkdownのコードフェンスは不要）。
 [
-  { "title": "記事タイトル", "source": "情報源名", "url": "候補一覧にあるURLをそのまま", "summary": "3〜4行程度の要約" }
+  { "headline": "20字前後の平易な見出し", "gist": "要するに何の話かを1文40字前後", "detail": "具体的な中身を2文90字前後"${effectField}, "source": "情報源名", "url": "候補一覧にあるURLをそのまま" }
 ]`;
 }
 
 function formatDigestText(edition, selected) {
   const body = selected
-    .map((item) => `――――――――――\n【${item.title}】\n${item.summary}\n出典: ${item.source}\nURL: ${item.url}`)
+    .map((item) => {
+      const lines = [`──────────`, `【${item.headline}】`, item.gist, item.detail];
+      if (item.effect) lines.push(`💡 ${item.effect}`);
+      // 原文タイトルは見出しを言い換えているため、後から照合できるようアーカイブ側だけに残す
+      lines.push(`出典: ${item.source}（原題: ${item.sourceTitle}）`, `URL: ${item.url}`);
+      return lines.join("\n");
+    })
     .join("\n\n");
-  return `${editionLabel(edition)}\n\n${body}\n――――――――――`;
-}
-
-// 無料枠のGemini APIは429/503（過負荷）やタイムアウトが起きることがある。
-// 実際に2026-07-10朝、flashの容量逼迫で60秒タイムアウト×2→503となり配信が失敗した。
-// 対策: flashで2回試し、ダメなら容量プールが別のflash-liteに切り替えてさらに2回試す
-const MODEL_ATTEMPTS = [
-  "gemini-2.5-flash",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-2.5-flash-lite",
-];
-
-async function callGemini(prompt) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY が設定されていません（.env を確認）");
-
-  let lastError;
-
-  for (let attempt = 1; attempt <= MODEL_ATTEMPTS.length; attempt++) {
-    const model = MODEL_ATTEMPTS[attempt - 1];
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: "application/json" },
-          }),
-          signal: AbortSignal.timeout(60_000),
-        }
-      );
-
-      if (!res.ok) {
-        throw new Error(`Gemini API error: ${res.status} ${await res.text()}`);
-      }
-
-      const data = await res.json();
-      const parts = data.candidates?.[0]?.content?.parts;
-      if (!parts) {
-        throw new Error(`Gemini応答に候補がありません: ${JSON.stringify(data).slice(0, 300)}`);
-      }
-      return JSON.parse(parts.map((part) => part.text ?? "").join(""));
-    } catch (err) {
-      lastError = err;
-      console.error(`Gemini呼び出し失敗（${attempt}回目・${model}）: ${err.message}`);
-      if (attempt < MODEL_ATTEMPTS.length) {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 15_000));
-      }
-    }
-  }
-
-  throw lastError;
+  return `${editionLabel(edition)}\n\n${body}\n──────────`;
 }
 
 // edition: "morning" | "evening"
@@ -168,8 +138,10 @@ export async function buildDigest(edition, sinceHours = 48) {
     const selected = await callGemini(prompt);
     // LLMが候補一覧にないURLを創作することがあるため、実在する候補だけ残す
     // （壊れたリンクの配信と、架空URLのseen-store記録を防ぐ）
-    const candidateUrls = new Set(candidates.map((item) => item.link));
-    valid = selected.filter((item) => candidateUrls.has(item.url));
+    const byUrl = new Map(candidates.map((item) => [item.link, item]));
+    valid = selected
+      .filter((item) => byUrl.has(item.url) && item.headline && item.gist)
+      .map((item) => ({ ...item, sourceTitle: byUrl.get(item.url).title }));
     if (valid.length === 0) {
       throw new Error(`Geminiの選定結果に有効な候補URLがありません: ${JSON.stringify(selected).slice(0, 300)}`);
     }

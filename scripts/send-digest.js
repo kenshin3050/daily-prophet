@@ -1,9 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { buildDigest } from "./build-digest.js";
+import { buildQuiz, formatQuizText } from "./build-quiz.js";
 import { attachThumbnails } from "./fetch-thumbnails.js";
 import { buildDigestMessages } from "./format-flex.js";
 import { broadcastMessages } from "./line.js";
+import { addAskedQuestions } from "./quiz-store.js";
 import { addSeen } from "./seen-store.js";
 import { wasSentToday, markSentToday, todayJst } from "./last-sent-store.js";
 
@@ -70,18 +72,35 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
   const { text, selected, selectedUrls, failures, label } = await buildDigest(edition);
   await attachThumbnails(selected);
-  const messages = buildDigestMessages({ label, selected, failures });
+
+  // 朝刊には基本情報技術者試験の3問を同梱する（資格勉強中のため）。
+  // クイズは付録なので、生成に失敗しても朝刊自体は予定どおり配信する
+  let quiz = [];
+  if (edition === "morning") {
+    try {
+      quiz = await buildQuiz();
+    } catch (err) {
+      console.error(`クイズの生成に失敗したため、クイズなしで配信します: ${err.message}`);
+    }
+  }
+
+  const messages = buildDigestMessages({ label, selected, failures, quiz });
   if (target !== null) await sleepUntil(target, `目標時刻 ${process.env.TARGET_TIME_JST} JST`);
   await broadcastMessages(messages);
   if (selectedUrls.length > 0) addSeen(edition, selectedUrls);
+  if (quiz.length > 0) addAskedQuestions(quiz.map((q) => q.question));
   markSentToday(edition);
 
-  // 後から振り返れるよう、配信したダイジェストのテキスト版を残す（記事があった日のみ）
-  if (selected.length > 0) {
+  // 後から振り返れるよう、配信した内容のテキスト版を残す
+  const archiveText = quiz.length > 0 ? `${text}\n\n${formatQuizText(quiz)}` : text;
+  if (selected.length > 0 || quiz.length > 0) {
     mkdirSync(new URL("../archive/", import.meta.url), { recursive: true });
-    writeFileSync(new URL(`../archive/${todayJst()}-${edition}.md`, import.meta.url), text + "\n");
+    writeFileSync(
+      new URL(`../archive/${todayJst()}-${edition}.md`, import.meta.url),
+      archiveText + "\n"
+    );
   }
 
   console.log("配信完了:");
-  console.log(text);
+  console.log(archiveText);
 }
