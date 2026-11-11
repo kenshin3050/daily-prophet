@@ -1,11 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 import { fetchSiteLatest } from "./fetch-site.js";
-import { buildJournalMessages } from "./format-flex.js";
-import { broadcastMessages } from "./line.js";
-import { decideWindow, sleepUntil } from "./schedule-window.js";
-import { wasSentToday, markSentToday } from "./last-sent-store.js";
 
 // ウォッチ対象サイトのジャーナル記事（2026-11時点で643件）から毎日1本をランダムに紹介する。
 // 2026-11-11にユーザーの要望で「新着通知」から「全記事からランダム1本」へ変更した。
@@ -27,10 +22,6 @@ function loadShown() {
   }
 }
 
-function saveShown(hashes) {
-  writeFileSync(SHOWN_PATH, JSON.stringify([...hashes], null, 2) + "\n");
-}
-
 // 未紹介の記事からランダムに1本選ぶ。全部出し切ったら記録を空にして一巡目に戻る
 export function pickUnshown(items, shown) {
   let pool = items.filter((item) => !shown.has(hashUrl(item.url)));
@@ -42,24 +33,16 @@ export function pickUnshown(items, shown) {
   return { item: pool[Math.floor(Math.random() * pool.length)], remaining: pool.length, reset };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  // 対象 URL はSecretsで渡す（publicリポジトリにサイト名を書かない方針）。
-  // 未設定のうちは、誤った一覧ページから配信しないよう何もせず終了する
+// 戻り値: { label, item, markShown } | null
+// markShownは送信に成功したあとで呼ぶ（送れていない記事を既出にしないため）
+export async function pickJournal() {
+  // 対象URLはSecretsで渡す（publicリポジトリにサイト名を書かない方針）。
+  // 未設定のうちは、誤った一覧ページから配信しないよう何も返さない
   const journalUrl = process.env.JOURNAL_URL;
   if (!journalUrl) {
-    console.log("JOURNAL_URL が未設定のためジャーナル配信をスキップします");
-    process.exit(0);
+    console.log("JOURNAL_URL が未設定のためジャーナルは添付しません");
+    return null;
   }
-
-  if (wasSentToday("journal")) {
-    console.log("ジャーナルは本日分を送信済みのためスキップします");
-    process.exit(0);
-  }
-
-  const hhmm = process.env.TARGET_TIME_JST;
-  const { action, target, reason } = decideWindow(hhmm);
-  console.log(reason);
-  if (action === "skip") process.exit(0);
 
   const items = await fetchSiteLatest(journalUrl);
   console.log(`ジャーナル記事 ${items.length}件を取得`);
@@ -70,11 +53,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (reset) console.log("全記事を紹介し終えたため、記録をリセットして一巡目に戻ります");
   console.log(`未紹介 ${remaining}件から選択: ${item.title}`);
 
-  const label = process.env.JOURNAL_LABEL || "ジャーナル";
-  if (target !== null) await sleepUntil(target, `目標時刻 ${hhmm} JST`);
-  await broadcastMessages(buildJournalMessages({ label, item }));
-
-  saveShown(reset ? new Set([hashUrl(item.url)]) : shown.add(hashUrl(item.url)));
-  markSentToday("journal");
-  console.log(`配信完了: ${item.title} (${item.date})`);
+  return {
+    label: process.env.JOURNAL_LABEL || "ジャーナル",
+    item,
+    markShown: () => {
+      const next = reset ? new Set() : shown;
+      next.add(hashUrl(item.url));
+      writeFileSync(SHOWN_PATH, JSON.stringify([...next], null, 2) + "\n");
+    },
+  };
 }

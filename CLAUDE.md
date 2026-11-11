@@ -18,7 +18,7 @@ scripts/
   seen-store.js         配信済みURLの記録・除外（loadSeen/addSeen、data/seen-{edition}.json）
   last-sent-store.js    当日JST基準の送信済みフラグ（wasSentToday/markSentToday、data/last-sent.json）
   gemini.js             Gemini API呼び出しの共通処理（モデルfallback・リトライ込み、callGemini）
-  build-digest.js       候補記事→Gemini APIで選定・要約→テキスト整形（buildDigest）
+  build-digest.js       候補記事→Gemini APIで選定・要約→テキスト整形（buildDigest。kindは"tech"|"society"）
   build-quiz.js         基本情報技術者試験の四択問題を3問生成（buildQuiz/formatQuizText）
   quiz-store.js         出題済み問題文の記録（重複出題の防止、data/quiz-seen.json）
   fetch-thumbnails.js   選定記事のog:imageを取得してサムネイルURLを付与
@@ -26,16 +26,15 @@ scripts/
   line.js               LINE Messaging API Broadcast送信（broadcastMessages/broadcastLine、送信元ボットを選べる）
   schedule-window.js    起動時刻から「このrunが配信担当か」を判定（decideWindow/sleepUntil）
   notify-failure.js     ワークフロー失敗時のLINE通知（if: failure()から呼ばれる）
-  send-digest.js        朝刊・夕刊のCLIエントリ。送信とseen/last-sent更新はここでのみ行う
+  send-morning.js       朝刊のCLIエントリ。技術・社会課題・ジャーナルを1通にまとめて送る
   send-quiz.js          基本情報クイズのCLIエントリ（専用ボットから送信）
   fetch-site.js         記事一覧ページの専用パーサー（対象URLは引数で渡す）
-  pick-journal.js       ジャーナル643件から未紹介の1本をランダムに選んで配信（data/journal-shown.json）
+  pick-journal.js       ジャーナル643件から未紹介の1本をランダムに選ぶ（pickJournal、data/journal-shown.json）
 .github/workflows/
   morning-digest.yml     朝刊を07:00 JSTに配信（cronは00:03/04:37 JST）＋クイズを別ボットで送るステップ
-  evening-digest.yml     夕刊を17:00 JSTに配信（cronは10:03/14:37 JST）
-  journal-pick.yml       毎日07:13 JSTにジャーナルから1本ランダム配信（cronは00:13 JST）
+                         ※これ1本だけ。夕刊とジャーナルの専用ワークフローは2026-11-11に廃止・統合した
 data/
-  seen-{morning,evening}.json  配信済み記事URL（直近300件）
+  seen-{tech,society}.json     配信済み記事URL（直近300件）
   last-sent.json               各editionの最終送信日（JST）
   journal-shown.json            紹介済みジャーナル記事のURL（SHA-256ハッシュ。全部出し切ると空に戻る）
   quiz-seen.json                出題済みのクイズ問題文（直近60問）
@@ -47,7 +46,9 @@ archive/
 
 ## 主要な設計判断とその理由
 
-- **朝刊＝技術、夕刊＝社会課題**（頭が疲れる夕方に技術記事は読みたくないという要望。逆にしないこと）
+- 🔴 **夕刊という概念は廃止。技術と社会課題の両方を朝に送る**（2026-11-11にユーザーが決定。それ以前は「朝刊＝技術、夕刊＝社会課題」だった）。配信は**朝1通にまとめる**（技術2本→社会課題2本→ジャーナル1本の1カルーセル、計5枚）。通知は「朝刊」と「クイズ（別ボット）」の2つだけ。副産物として、GitHubの遅延で壊れ続けていた夕方のcron枠を使わなくなり安定性も上がった
+- **コード上のキーは時間帯でなく内容**（`tech`/`society`）。以前の`morning`/`evening`は廃止し、`data/seen-tech.json`・`data/seen-society.json`にリネームした。`last-sent.json`のキーは`morning`（朝刊1通）と`quiz`
+- **記事は各セクション2本（`MAX_ARTICLES`）**。朝にまとめるので、さっと読み切れる量にするとユーザーが決めた
 - **LLMはGemini API（`gemini-2.5-flash`、無料枠）を使用、Anthropic APIは使わない**。無課金運用の方針のため（Claude Pro契約はAPI従量課金を代替しない）。Google AI Studioでクレジットカード不要で無料発行できる。1日50回までの無料枠に対し実使用は1日2〜3回程度なので十分余裕がある
 - **配信はLINE Messaging APIのBroadcast API**（`/v2/bot/message/broadcast`）。個人利用でuserId取得が不要なため
 - **定時実行はGitHub Actionsの`schedule`トリガー**。Claude Code自体のスケジュール実行機能（`schedule`スキル等）はアプリが開いている時しか動かないため不採用
@@ -68,8 +69,10 @@ archive/
 - **夕刊の専門用語は従来どおり注釈つきで残す**（例:「リスキリング」「GX-ETS」）。経済・政策系の用語には慣れてほしいという意図
 - 🔴 **「パッと見て頭に入る」ことを最優先する**（2026-10-16。「タイトルや説明が難しすぎて全く読まなくなった」という申告を受けた最重要の方針転換）。配信が安定しても読まれなければ意味がないので、今後の変更でもこの優先順位を下げないこと。具体策は`build-digest.js`の`WRITING_RULES`:
   - **原文タイトルを転記しない**。何のニュースかが一読で分かる平易な日本語の見出し（20字前後）に言い換える。英語記事も日本語化する。原文タイトルは`sourceTitle`としてアーカイブにだけ残し、後から照合できるようにしている
-  - カードは **見出し（太字）→ gist（要するに何の話か1文）→ detail（具体を2文）** の3段で、上から読むほど詳しくなる構成。朝刊はさらに`effect`（これが効いてくる場面）を1行
+  - 🔴 **カードに載せるのは【大きな画像／色バッジ／太字の見出し／一言(gist)】の4つだけ**（2026-11-11。「この見た目だと読まない。より押したくなる見た目にしたい」との要望で、以前あった2行の補足`detail`と「これが効いてくる場面」`effect`は廃止した。詳しい内容は記事を開く側に任せる方針）。導線を強くするため**塗りボタン（記事を読む →）＋カード全体タップ**の両方を付け、バブルサイズは`mega`。バッジ色は技術=青/社会課題=緑/ジャーナル=茶
+  - **情報を足したくなっても、まずこの4要素の制約を守ること。** 読まれないことが最大の失敗であり、情報量を増やす変更は過去2回とも「読まなくなった」に直結している
   - **中身のない締め文を禁止リストで明示**（「〜が浮き彫りになっています」「重要な示唆を与えます」「〜する一助となるでしょう」等）。以前はこれらで字数が埋まり、読んでも内容が残らなかった。数字・固有名詞・具体的な事実を入れることを要求している
+  - **手動実行（workflow_dispatch）は時刻判定と送信済みガードを飛ばして即送信する**。見た目の確認をその場でできるようにするため（`TARGET_TIME_JST`が空かどうかで判定）
   - 夕刊では**個人の体験談・人生相談・家計の愚痴・芸能ゴシップ・健康ライフハック**を選ばせない。テーマに当てはまるだけの軽い記事（例: 「腸に良いバナナ」）が選ばれていたため
 - **朝刊のジャンルは「AIを業務に組み込む技術」を最優先**（2026-11-11。ユーザーが将来DX・AXを仕事にするため、ここが一番学びたい領域と明言）。LLM出力の構造化・確信度/確率による自動処理と人手確認の振り分け（Human-in-the-loop）・業務判断の自動化とその精度評価・組み込み事例の実測値・判断特化モデルなど。きっかけはユーザーがTypeSafe AIの判断モデル「Jev」（2026-09公開。文章ではなく型付きの判定結果と確信度を返し、問い合わせの振り分けやリスク採点に使う）を人から聞いて興味を持ったこと。**プレスリリース的な記事より仕組み・数値・実例が分かる記事を優先**させている（クラウド Watchは製品リリース記事が多いため）
 - **選ぶ記事は最大3本（`MAX_ARTICLES`）でコード側でも切る**。プロンプトで「2〜3本」と指示していても実測で16本返したことがあり、読む量が増えるうえLINEのカルーセル上限（12枚）も超えるため

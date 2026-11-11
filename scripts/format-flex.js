@@ -1,64 +1,143 @@
-// ダイジェストとクイズをLINE Flex Message（カードのカルーセル）に組み立てる。
+// 配信内容をLINE Flex Message（カードのカルーセル）に組み立てる。
 // アーカイブやCLI確認にはテキスト版を使い、LINE上の見た目だけここで作る。
 //
-// 2026-10-16: 「難しそうに見えて読まなくなった」という申告を受けてレイアウト変更。
-// 言い換え見出し（太字・大きめ）→ 一言 → 2行の補足 の順で、上から読むほど詳しくなるようにした
+// 2026-11-11: 「この見た目だと読まない。より押したくなる見た目にしたい」との要望で改訂。
+// 1枚に載せるのは【大きな画像／色バッジ／太字の見出し／一言】だけに絞り、
+// 塗りボタンとカード全体タップで「開く」導線を強くした。
+// 以前あった2行の補足と「これが効いてくる場面」は、記事を開く側に任せて廃止している。
+
+const BADGE_COLORS = {
+  tech: "#2563eb", // 青
+  society: "#0f766e", // 緑
+  journal: "#b45309", // 茶
+};
 
 const CHOICE_LABELS = ["ア", "イ", "ウ", "エ"];
 
-function articleBubble(item) {
-  const contents = [
-    { type: "text", text: item.headline, weight: "bold", size: "md", wrap: true },
-    { type: "text", text: item.gist, size: "sm", color: "#333333", wrap: true },
-  ];
+// 内容に合わせて幅が決まるバッジ（flex:0 + fillerで左寄せのまま content 幅になる）
+function badgeRow(text, color) {
+  return {
+    type: "box",
+    layout: "horizontal",
+    contents: [
+      {
+        type: "box",
+        layout: "vertical",
+        flex: 0,
+        backgroundColor: color,
+        cornerRadius: "md",
+        paddingAll: "4px",
+        paddingStart: "10px",
+        paddingEnd: "10px",
+        contents: [
+          { type: "text", text, size: "xxs", color: "#ffffff", weight: "bold", wrap: false },
+        ],
+      },
+      { type: "filler" },
+    ],
+  };
+}
 
-  if (item.detail) {
-    contents.push({ type: "text", text: item.detail, size: "xs", color: "#777777", wrap: true });
-  }
-  if (item.effect) {
-    contents.push({
-      type: "box",
-      layout: "baseline",
-      spacing: "sm",
-      contents: [
-        { type: "text", text: "💡", size: "xs", flex: 0 },
-        { type: "text", text: item.effect, size: "xs", color: "#1f7a5c", wrap: true },
-      ],
-    });
-  }
-  contents.push({ type: "text", text: item.source, size: "xxs", color: "#aaaaaa" });
+function linkButton(label, uri) {
+  return {
+    type: "box",
+    layout: "vertical",
+    contents: [
+      {
+        type: "button",
+        style: "primary",
+        height: "sm",
+        color: "#1f2937",
+        action: { type: "uri", label, uri },
+      },
+    ],
+  };
+}
+
+// 大きな画像を載せたカード。画像が取れなかった記事は画像なしで同じ構成になる
+function cardBubble({ badge, color, headline, gist, footnote, url, imageUrl, buttonLabel }) {
+  const contents = [badgeRow(badge, color)];
+  contents.push({ type: "text", text: headline, weight: "bold", size: "lg", wrap: true });
+  if (gist) contents.push({ type: "text", text: gist, size: "sm", color: "#666666", wrap: true });
+  if (footnote) contents.push({ type: "text", text: footnote, size: "xxs", color: "#aaaaaa" });
 
   const bubble = {
     type: "bubble",
-    size: "kilo",
-    body: { type: "box", layout: "vertical", spacing: "sm", contents },
-    footer: {
-      type: "box",
-      layout: "vertical",
-      contents: [
-        {
-          type: "button",
-          style: "link",
-          height: "sm",
-          action: { type: "uri", label: "記事を読む", uri: item.url },
-        },
-      ],
-    },
+    size: "mega",
+    body: { type: "box", layout: "vertical", spacing: "md", contents },
+    footer: linkButton(buttonLabel, url),
+    // カードのどこを押しても記事が開くようにする
+    action: { type: "uri", uri: url },
   };
 
-  // サムネイルが取れた記事はカード上部にヒーロー画像を載せる（タップで記事へ）
-  if (item.imageUrl) {
+  if (imageUrl) {
     bubble.hero = {
       type: "image",
-      url: item.imageUrl,
+      url: imageUrl,
       size: "full",
       aspectRatio: "20:13",
       aspectMode: "cover",
-      action: { type: "uri", uri: item.url },
+      action: { type: "uri", uri: url },
     };
   }
 
   return bubble;
+}
+
+function articleBubble(item, kind) {
+  return cardBubble({
+    badge: item.badge,
+    color: BADGE_COLORS[kind],
+    headline: item.headline,
+    gist: item.gist,
+    footnote: item.source,
+    url: item.url,
+    imageUrl: item.imageUrl,
+    buttonLabel: "記事を読む →",
+  });
+}
+
+function journalBubble(item, label) {
+  return cardBubble({
+    badge: label,
+    color: BADGE_COLORS.journal,
+    headline: item.title,
+    footnote: item.date,
+    url: item.url,
+    imageUrl: item.imageUrl,
+    buttonLabel: "読む →",
+  });
+}
+
+// 朝の配信は1通にまとめる（2026-11-11の要望）。
+// 技術 → 社会課題 → ジャーナル の順に並ぶ1本のカルーセルにして、通知を1回で済ませる。
+// sections: [{ kind, label, selected }]、journal: { label, item } | null
+export function buildMorningMessages({ sections, journal, failures }) {
+  const bubbles = [];
+  for (const section of sections) {
+    for (const item of section.selected) bubbles.push(articleBubble(item, section.kind));
+  }
+  if (journal?.item) bubbles.push(journalBubble(journal.item, journal.label));
+
+  const headline = sections.map((s) => s.label).join(" ／ ");
+  const messages = [{ type: "text", text: `📰 朝刊\n${headline}` }];
+
+  if (bubbles.length === 0) {
+    messages.push({ type: "text", text: "新着記事がありませんでした。" });
+  } else {
+    // LINEのカルーセル上限は12枚。技術2＋社会課題2＋ジャーナル1＝5枚なので余裕がある
+    messages.push({
+      type: "flex",
+      altText: `朝刊 ${bubbles.length}本`,
+      contents: { type: "carousel", contents: bubbles.slice(0, 12) },
+    });
+  }
+
+  if (failures.length > 0) {
+    messages.push({ type: "text", text: `⚠️ 取得失敗: ${failures.join(", ")}` });
+  }
+
+  return messages;
 }
 
 function sectionHeader(text, color) {
@@ -74,7 +153,7 @@ function sectionHeader(text, color) {
 }
 
 // 問題カードの次に答えカードが来るよう交互に並べる。
-// 考えてから横スワイプして答え合わせできる（LINEのBroadcastではタップで開く仕掛けが作れないため）
+// 考えてから横スワイプして答え合わせできる（Broadcastではタップで開く仕掛けが作れないため）
 function quizBubbles(quiz) {
   const bubbles = [];
 
@@ -127,29 +206,6 @@ function quizBubbles(quiz) {
   return bubbles;
 }
 
-// 戻り値はbroadcastMessagesにそのまま渡せるメッセージ配列。
-// LINEは1リクエストにメッセージオブジェクト5個まで
-export function buildDigestMessages({ label, selected, failures }) {
-  const messages = [];
-
-  if (selected.length === 0) {
-    messages.push({ type: "text", text: `${label}\n\n新着記事がありませんでした。` });
-  } else {
-    messages.push({ type: "text", text: `📰 ${label}` });
-    messages.push({
-      type: "flex",
-      altText: `${label} ${selected.length}本のダイジェスト`,
-      contents: { type: "carousel", contents: selected.map(articleBubble) },
-    });
-  }
-
-  if (failures.length > 0) {
-    messages.push({ type: "text", text: `⚠️ 取得失敗: ${failures.join(", ")}` });
-  }
-
-  return messages;
-}
-
 // クイズは専用ボット（別トーク）から単独で送るため、見出しも自前で持つ
 export function buildQuizMessages(quiz) {
   return [
@@ -159,52 +215,5 @@ export function buildQuizMessages(quiz) {
       altText: `基本情報技術者 今日の${quiz.length}問`,
       contents: { type: "carousel", contents: quizBubbles(quiz) },
     },
-  ];
-}
-
-// 1記事だけを紹介するカード（NRIジャーナルのランダム配信用）。
-// 読む気になるかが勝負なので、サムネイル画像を大きく出してボタンで記事へ飛ばす
-export function buildJournalMessages({ label, item }) {
-  const body = {
-    type: "box",
-    layout: "vertical",
-    spacing: "sm",
-    contents: [
-      { type: "text", text: item.title, weight: "bold", size: "md", wrap: true },
-      { type: "text", text: item.date, size: "xxs", color: "#aaaaaa" },
-    ],
-  };
-
-  const bubble = {
-    type: "bubble",
-    body,
-    footer: {
-      type: "box",
-      layout: "vertical",
-      contents: [
-        {
-          type: "button",
-          style: "primary",
-          height: "sm",
-          action: { type: "uri", label: "読む", uri: item.url },
-        },
-      ],
-    },
-  };
-
-  if (item.imageUrl) {
-    bubble.hero = {
-      type: "image",
-      url: item.imageUrl,
-      size: "full",
-      aspectRatio: "20:13",
-      aspectMode: "cover",
-      action: { type: "uri", uri: item.url },
-    };
-  }
-
-  return [
-    { type: "text", text: `📚 ${label}から1本` },
-    { type: "flex", altText: `${label}: ${item.title}`, contents: bubble },
   ];
 }

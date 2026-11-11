@@ -5,12 +5,12 @@ on:
     # 目標配信時刻は 07:00 JST (22:00 UTC)。
     #
     # GitHub Actionsのscheduleは「必ず発火するが大幅に遅れる」挙動。2026-11-11の実測で、
-    # 1日1本だけのSite Watchは7日連続100%発火した一方、遅延は193〜353分（3.2〜5.9時間）だった。
+    # 1日1本だけのcronは7日連続100%発火した一方、遅延は193〜353分（3.2〜5.9時間）だった。
     # 逆にcronを5本に増やすと1〜3本しか発火しなくなる（本数が多いほど間引かれる）。
     #
     # そこで「本数を絞り、遅延分を見込んで早く置く」方針にしている。
     # 本命は目標の約7時間前。遅延3.2〜5.9時間を足すと 03:13〜05:53 JST に起動し、
-    # send-digest.jsの担当窓（目標の5時間前〜目標）にちょうど収まるため、07:00に定刻配信できる。
+    # send-morning.jsの担当窓（目標の5時間前〜目標）にちょうど収まるため、07:00に定刻配信できる。
     # ⚠️ 遅延の実測値が変わったらこのオフセットも再調整すること（再測定の手順はCLAUDE.md参照）
     - cron: "3 15 * * *" # 00:03 JST（本命。目標の約7時間前）
     # GitHubの遅延が解消された場合の保険（遅延ゼロならこれが担当窓に入る）
@@ -34,10 +34,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - run: node scripts/send-digest.js morning
+      # 技術・社会課題・ジャーナルを1通にまとめて送る
+      - run: node scripts/send-morning.js
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # 対象サイトはリポジトリに書かずSecretsで指定する
+          JOURNAL_URL: ${{ secrets.JOURNAL_URL }}
+          JOURNAL_LABEL: ${{ secrets.JOURNAL_LABEL }}
           # 手動実行（workflow_dispatch）のときは待たずに即送信する
           TARGET_TIME_JST: ${{ github.event_name == 'schedule' && '07:00' || '' }}
       # 基本情報クイズは別のLINEボット（＝別トーク）から送る。朝刊と通知が混ざらないようにするため。
@@ -50,14 +54,14 @@ jobs:
           LINE_CHANNEL_ACCESS_TOKEN_QUIZ: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN_QUIZ }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TARGET_TIME_JST: ${{ github.event_name == 'schedule' && '07:00' || '' }}
-      - name: Commit updated seen list
+      - name: Commit updated state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/seen-morning.json data/last-sent.json data/quiz-seen.json archive
+          git add data archive
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update morning seen list"
-            # 他ワークフローのpushと競合した場合に備えて一度だけリトライ
+            git commit -m "chore: update digest state"
+            # 他のpushと競合した場合に備えて一度だけリトライ
             git push || (git pull --rebase && git push)
           fi
       - name: Notify failure

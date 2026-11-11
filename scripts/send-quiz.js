@@ -18,12 +18,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(0);
   }
 
-  if (wasSentToday("quiz")) {
+  // TARGET_TIME_JSTが空＝手動実行。手動のときは送信済みガードを飛ばして即送信する
+  const hhmm = process.env.TARGET_TIME_JST;
+  if (hhmm && wasSentToday("quiz")) {
     console.log("クイズは本日分を送信済みのためスキップします");
     process.exit(0);
   }
 
-  const hhmm = process.env.TARGET_TIME_JST;
   const { action, target, reason } = decideWindow(hhmm);
   console.log(reason);
   if (action === "skip") process.exit(0);
