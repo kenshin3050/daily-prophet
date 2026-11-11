@@ -1,41 +1,48 @@
-name: Site Watch
+name: Journal Pick
 
 on:
   schedule:
-    - cron: "13 22 * * *" # 毎日 07:13 JST
+    # 目標配信時刻は 07:13 JST (22:13 UTC)。本命は目標の約7時間前に1本だけ置く
+    # （1日1本のcronは実測で7日連続100%発火。考え方はmorning-digest.ymlのコメント参照）
+    - cron: "13 15 * * *" # 00:13 JST
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
+concurrency:
+  group: journal-pick
+  cancel-in-progress: false
+
 jobs:
-  check:
+  pick:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - run: node scripts/check-site.js
+      - run: node scripts/pick-journal.js
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-          # 監視対象サイトはリポジトリに書かず、Secretsで指定する
-          WATCH_URL: ${{ secrets.WATCH_URL }}
-          WATCH_LABEL: ${{ secrets.WATCH_LABEL }}
-      - name: Commit updated seen list
+          # 対象サイトはリポジトリに書かずSecretsで指定する
+          JOURNAL_URL: ${{ secrets.JOURNAL_URL }}
+          JOURNAL_LABEL: ${{ secrets.JOURNAL_LABEL }}
+          TARGET_TIME_JST: ${{ github.event_name == 'schedule' && '07:13' || '' }}
+      - name: Commit updated shown list
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/site-seen.json
+          git add data/journal-shown.json data/last-sent.json
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update site watch seen list"
+            git commit -m "chore: update journal shown list"
             # 朝刊ワークフローのpushと競合しうるため一度だけリトライ
             git push || (git pull --rebase && git push)
           fi
       - name: Notify failure
         if: failure()
-        run: node scripts/notify-failure.js サイトウォッチ
+        run: node scripts/notify-failure.js ジャーナル
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

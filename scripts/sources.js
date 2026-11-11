@@ -5,6 +5,10 @@ export const SOURCES = {
     { name: "GIGAZINE", url: "https://gigazine.net/news/rss_2.0/" },
     { name: "MIT Technology Review", url: "https://www.technologyreview.com/feed/" },
     { name: "OpenAI News", url: "https://openai.com/news/rss.xml" },
+    // 「AIを業務に組み込む技術」を増やすため2026-11-11に追加（将来DX/AX領域で働くため）。
+    // AI専門メディア（XenoSpectrum・AI総研・Ledge.ai）のRSSはいずれも404/410で使えなかった
+    { name: "ITmedia エンタープライズ", url: "https://rss.itmedia.co.jp/rss/2.0/enterprise.xml" },
+    { name: "クラウド Watch", url: "https://cloud.watch.impress.co.jp/data/rss/1.0/clw/feed.rdf" },
   ],
   evening: [
     { name: "東洋経済オンライン", url: "http://toyokeizai.net/list/feed/rss" },

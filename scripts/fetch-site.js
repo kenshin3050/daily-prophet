@@ -1,5 +1,5 @@
-// 監視対象サイトの新着一覧ページのパーサー。
-// 対象URLはリポジトリに書かず、環境変数WATCH_URL（GitHub Secrets / ローカル.env）で渡す。
+// 対象サイトの記事一覧ページのパーサー。
+// 対象URLはリポジトリに書かず、呼び出し側が環境変数（GitHub Secrets / ローカル.env）で渡す。
 
 function decodeEntities(text) {
   return text
@@ -25,24 +25,27 @@ export function parseSiteLatest(html, baseUrl) {
     const dateMatch = block.match(/<time class="--date" datetime="([^"]+)"/);
     if (!hrefMatch || !titleMatch || !dateMatch) continue;
 
+    // 記事カードに出すサムネイル（lazy loading用のdata-src等ではなくsrcに入っている）
+    const imgMatch = block.match(/<img src="([^"]+)"/);
+
     items.push({
       title: decodeEntities(titleMatch[1]),
       url: new URL(hrefMatch[1], baseUrl).href,
-      date: dateMatch[1],
+      date: dateMatch[1].slice(0, 10),
+      imageUrl: imgMatch ? new URL(imgMatch[1], baseUrl).href : null,
     });
   }
   return items;
 }
 
-export async function fetchSiteLatest() {
-  const watchUrl = process.env.WATCH_URL;
-  if (!watchUrl) throw new Error("WATCH_URL が設定されていません（.env / Secrets を確認）");
+export async function fetchSiteLatest(listUrl) {
+  if (!listUrl) throw new Error("一覧ページのURLが指定されていません（.env / Secrets を確認）");
 
-  const res = await fetch(watchUrl, {
+  const res = await fetch(listUrl, {
     headers: { "User-Agent": "daily-prophet-digest/0.1 (personal use RSS reader)" },
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const html = await res.text();
-  return parseSiteLatest(html, watchUrl);
+  return parseSiteLatest(html, listUrl);
 }

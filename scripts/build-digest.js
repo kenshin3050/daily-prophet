@@ -3,6 +3,8 @@ import { fetchItems } from "./fetch-sources.js";
 import { callGemini } from "./gemini.js";
 import { loadSeen } from "./seen-store.js";
 
+const MAX_ARTICLES = 3;
+
 // 夕刊は曜日ごとにテーマを決め、1週間で7ジャンルを一巡させる。
 // 毎回同じ切り口（経済ばかり等）にならず、視野が偏らないようにするのが狙い。
 // 配列の添字はJSTの曜日番号（0=日曜）
@@ -35,8 +37,18 @@ function editionInstruction(edition) {
 LLM、API、クラウド、機械学習といった基本用語はすでに理解しているので、いちいち説明する必要はありません。
 一方でエンジニアではないため、実装の詳細や特定フレームワークの内部構造には踏み込まないでください。
 
-候補記事の中から、AI・クラウド、および実務で効いてくる技術トピックを優先して2〜3本選んでください。
-なるべく複数の情報源から選び、同じ情報源に偏らないようにしてください。`;
+読者は将来DX・AX（AIによる業務変革）を仕事にするため、**「AIを実際の業務に組み込むための技術」を最優先**で選んでください。
+具体的には次のようなトピックです。
+- LLMの出力を構造化データや確信度・確率として扱い、機械で判定できるようにする技術
+- 確信度のしきい値で「自動処理する／人間のオペレーターに回す」を振り分ける仕組み（Human-in-the-loop）
+- 判定・分類・振り分け・採点といった業務判断の自動化、およびその精度評価・検証のやり方
+- AIを業務プロセスやシステムに組み込んだ事例、運用コストや精度の実測値
+- 判断に特化したモデルなど、文章生成型のLLMとは役割が違う新しいモデルの登場
+
+上記に当てはまる記事があれば必ず優先してください。無ければAI・クラウドの一般的な動向から選んでかまいません。
+製品の提供開始や資本提携だけを伝えるプレスリリース的な記事より、仕組み・数値・実例が分かる記事を優先してください。
+なるべく複数の情報源から選び、同じ情報源に偏らないようにしてください。
+**選ぶのは必ず2〜3本までです。候補が多くても4本以上は選ばないでください。**`;
   }
 
   return `あなたは社会課題系ニュースダイジェストの編集者です。
@@ -139,8 +151,11 @@ export async function buildDigest(edition, sinceHours = 48) {
     // LLMが候補一覧にないURLを創作することがあるため、実在する候補だけ残す
     // （壊れたリンクの配信と、架空URLのseen-store記録を防ぐ）
     const byUrl = new Map(candidates.map((item) => [item.link, item]));
+    // LLMは指示を超えて選びがち（実測で16本返したことがある）。読む量を一定に保つため、
+    // またLINEのカルーセル上限（12枚）を超えないよう、コード側でも3本に切る
     valid = selected
       .filter((item) => byUrl.has(item.url) && item.headline && item.gist)
+      .slice(0, MAX_ARTICLES)
       .map((item) => ({ ...item, sourceTitle: byUrl.get(item.url).title }));
     if (valid.length === 0) {
       throw new Error(`Geminiの選定結果に有効な候補URLがありません: ${JSON.stringify(selected).slice(0, 300)}`);

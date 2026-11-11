@@ -128,9 +128,8 @@ function quizBubbles(quiz) {
 }
 
 // 戻り値はbroadcastMessagesにそのまま渡せるメッセージ配列。
-// LINEは1リクエストにメッセージオブジェクト5個までなので、
-// 見出し＋記事カルーセル＋クイズカルーセル＋取得失敗の警告で最大4個に収めている
-export function buildDigestMessages({ label, selected, failures, quiz }) {
+// LINEは1リクエストにメッセージオブジェクト5個まで
+export function buildDigestMessages({ label, selected, failures }) {
   const messages = [];
 
   if (selected.length === 0) {
@@ -144,17 +143,68 @@ export function buildDigestMessages({ label, selected, failures, quiz }) {
     });
   }
 
-  if (quiz && quiz.length > 0) {
-    messages.push({
-      type: "flex",
-      altText: `基本情報技術者 今日の${quiz.length}問`,
-      contents: { type: "carousel", contents: quizBubbles(quiz) },
-    });
-  }
-
   if (failures.length > 0) {
     messages.push({ type: "text", text: `⚠️ 取得失敗: ${failures.join(", ")}` });
   }
 
   return messages;
+}
+
+// クイズは専用ボット（別トーク）から単独で送るため、見出しも自前で持つ
+export function buildQuizMessages(quiz) {
+  return [
+    { type: "text", text: `📝 基本情報 今日の${quiz.length}問` },
+    {
+      type: "flex",
+      altText: `基本情報技術者 今日の${quiz.length}問`,
+      contents: { type: "carousel", contents: quizBubbles(quiz) },
+    },
+  ];
+}
+
+// 1記事だけを紹介するカード（NRIジャーナルのランダム配信用）。
+// 読む気になるかが勝負なので、サムネイル画像を大きく出してボタンで記事へ飛ばす
+export function buildJournalMessages({ label, item }) {
+  const body = {
+    type: "box",
+    layout: "vertical",
+    spacing: "sm",
+    contents: [
+      { type: "text", text: item.title, weight: "bold", size: "md", wrap: true },
+      { type: "text", text: item.date, size: "xxs", color: "#aaaaaa" },
+    ],
+  };
+
+  const bubble = {
+    type: "bubble",
+    body,
+    footer: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        {
+          type: "button",
+          style: "primary",
+          height: "sm",
+          action: { type: "uri", label: "読む", uri: item.url },
+        },
+      ],
+    },
+  };
+
+  if (item.imageUrl) {
+    bubble.hero = {
+      type: "image",
+      url: item.imageUrl,
+      size: "full",
+      aspectRatio: "20:13",
+      aspectMode: "cover",
+      action: { type: "uri", uri: item.url },
+    };
+  }
+
+  return [
+    { type: "text", text: `📚 ${label}から1本` },
+    { type: "flex", altText: `${label}: ${item.title}`, contents: bubble },
+  ];
 }

@@ -2,21 +2,19 @@ name: Morning Digest
 
 on:
   schedule:
-    # 目標配信時刻は 07:00 JST (22:00 UTC)。GitHub Actionsのscheduleは起動が
-    # 遅延し（通常25〜55分、まれに8時間以上）実行自体が取りこぼされることもある。
-    # そこで「本命1本＋保険2本」ではなく、目標時刻の前後にcronを多数ばらまき、
-    # どれが担当かはsend-digest.js側の時刻判定に任せる（遅延しても、ばらまいた
-    # どれかが担当時間帯に入る確率を上げる狙い）。
-    # 実際に送るrunは1日1本だけで、残りはconcurrencyと送信済みガードで即終了する。
+    # 目標配信時刻は 07:00 JST (22:00 UTC)。
     #
-    # ⚠️ cronの本数を増やしすぎないこと。2026-08-28に30分/15分間隔（1日18本）へ
-    # 増やしたところ、GitHub側にスロットリングされたらしく大半のrunが発火せず、
-    # 朝刊・夕刊とも1回まるごと欠配した。1日5本程度に抑えるのが安全。
-    # 毎時0分は混雑しやすいので、あえて7分/20分にずらしている。
-    # 02:07 / 04:07 / 06:07 JST に起動したrunが担当（定刻まで待機して07:00に送信）
-    - cron: "7 17,19,21 * * *"
-    # 07:20 / 08:20 JST。上が全滅した日に、遅れてでも配信するための枠
-    - cron: "20 22,23 * * *"
+    # GitHub Actionsのscheduleは「必ず発火するが大幅に遅れる」挙動。2026-11-11の実測で、
+    # 1日1本だけのSite Watchは7日連続100%発火した一方、遅延は193〜353分（3.2〜5.9時間）だった。
+    # 逆にcronを5本に増やすと1〜3本しか発火しなくなる（本数が多いほど間引かれる）。
+    #
+    # そこで「本数を絞り、遅延分を見込んで早く置く」方針にしている。
+    # 本命は目標の約7時間前。遅延3.2〜5.9時間を足すと 03:13〜05:53 JST に起動し、
+    # send-digest.jsの担当窓（目標の5時間前〜目標）にちょうど収まるため、07:00に定刻配信できる。
+    # ⚠️ 遅延の実測値が変わったらこのオフセットも再調整すること（再測定の手順はCLAUDE.md参照）
+    - cron: "3 15 * * *" # 00:03 JST（本命。目標の約7時間前）
+    # GitHubの遅延が解消された場合の保険（遅延ゼロならこれが担当窓に入る）
+    - cron: "37 19 * * *" # 04:37 JST
   workflow_dispatch: {}
 
 permissions:
@@ -42,6 +40,16 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # 手動実行（workflow_dispatch）のときは待たずに即送信する
           TARGET_TIME_JST: ${{ github.event_name == 'schedule' && '07:00' || '' }}
+      # 基本情報クイズは別のLINEボット（＝別トーク）から送る。朝刊と通知が混ざらないようにするため。
+      # cronを増やさずに済むよう、同じrunの別ステップとして実行している。
+      # クイズは付録なので、失敗しても朝刊の成否には影響させない
+      - name: Send quiz (separate LINE bot)
+        continue-on-error: true
+        run: node scripts/send-quiz.js
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN_QUIZ: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN_QUIZ }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TARGET_TIME_JST: ${{ github.event_name == 'schedule' && '07:00' || '' }}
       - name: Commit updated seen list
         run: |
           git config user.name "github-actions[bot]"
@@ -49,7 +57,7 @@ jobs:
           git add data/seen-morning.json data/last-sent.json data/quiz-seen.json archive
           if ! git diff --cached --quiet; then
             git commit -m "chore: update morning seen list"
-            # 他ワークフロー（Site Watch等）のpushと競合した場合に備えて一度だけリトライ
+            # 他ワークフローのpushと競合した場合に備えて一度だけリトライ
             git push || (git pull --rebase && git push)
           fi
       - name: Notify failure
